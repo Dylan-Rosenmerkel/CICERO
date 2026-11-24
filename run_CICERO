@@ -974,6 +974,10 @@ def composite(run, configs, gc_dirs):
     if len(gc_dirs) == 2:
         sets.append((gc_dirs["per-image"], os.path.join(run.out, "composite_per_image"), "_per_image"))
     root_exe = shutil.which("root") or os.path.join(os.path.dirname(sys.executable), "root")
+    # ROOT compiles the macro with the environment's own compiler, next to root in bin/: on the PATH also when
+    # this python was started directly (not through conda run)
+    root_env = dict(os.environ, PATH=os.pathsep.join([os.path.dirname(os.path.realpath(root_exe)),
+                                                      os.path.dirname(sys.executable), os.environ.get("PATH", "")]))
     # ROOT compiles the macro next to the file it is given: a copy in the run folder keeps CICERO/ unchanged
     build = os.path.join(run.out, "composite_macro")
     os.makedirs(build, exist_ok=True)
@@ -1006,7 +1010,7 @@ def composite(run, configs, gc_dirs):
             run.say(f"MakeComposite {name}{tag} ({len(files)} file(s))")
             with open(log, "w") as fh:
                 rc = subprocess.run([root_exe, "-l", "-q", "-b", f'{macro}+("{lst}",{num},"{module}","{cdir}")'],
-                                    stdout=fh, stderr=subprocess.STDOUT).returncode
+                                    stdout=fh, stderr=subprocess.STDOUT, env=root_env).returncode
             plots = os.path.join(cdir, "Fe_55_Analysis_Plots", module, f"{name}_list")
             ok = rc == 0 and bool(glob.glob(os.path.join(plots, "compare", "*.png")))
             lines.append(f"  {name}: {'plots in ' + plots if ok else 'FAILED, see ' + log}")
