@@ -45,6 +45,7 @@ number of skips), skip-resolved raw FITS files (averaged first), level-0 traces 
 | fits and clusters | `run_CICERO images.txt` | `root/`, `images/`, `summary.txt`, `fit_quality.csv` |
 | gain-corrected energies (g(n)) | `... --gain-correction [pooled\|per-image\|both]` | `gain_vs_charge/`, `root_gaincorr*/` |
 | Fe-55 analysis | `... --composite --module-list modules.csv` | `composite/`: K-alpha / K-beta fits front and back per CCD, CTI, plots, `energy_summary.csv` |
+| histograms in given ranges | `... --hist pixels:-1:5 --hist clusters:5:7` | `hist/`: per image and CCD, binning chosen automatically (CSV, PNG, `index.html`) |
 | fits only | `... --no-clusters` | no cluster files (much faster) |
 | CCDs without an electron comb | `... --gain 1.3`, `--gain EXT1=1.3,EXT4=0.82` or `--gain-file gains.json` | flagged in `summary.txt` |
 | L0 traces / PSD traces | `run_CICERO traces.txt` | `packet/` (trace view and noise spectrum per module), `L0/` |

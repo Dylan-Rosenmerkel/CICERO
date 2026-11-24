@@ -11,6 +11,7 @@ report can be written again later without fitting the image again:
     packet                              options['packet']: {ext number: [fit card, viewer, log]} for the packet pages
     packet_numbers                      options['packet']: packet_report.image_numbers
     sr                                  options['sr'] = (threshold, min length): {ext: sr_images.image_part item}
+    hist                                options['hist'] = [pixel range specs]: {ext: [histograms.pixel_part item]}
 Returns (path, record or None, error text or None).
 """
 import os
@@ -82,6 +83,12 @@ def make_record(path, s, kw, opts):
         thr, ml = opts["sr"]
         rec["sr"] = SR.image_part(path, s, geo, meta, thr, ml, {n: summ for n, (summ, _, _) in per_ext.items()})
         rec["sr_settings"] = [thr, ml]
+    if opts.get("hist"):
+        import histograms as H
+        try:
+            rec["hist"] = H.pixel_part(s, geo, opts["hist"])
+        except Exception as e:                        # the record still holds everything else
+            rec["hist_error"] = f"{type(e).__name__}: {e}"
     rec["summary"] = strip(s)
     return rec
 

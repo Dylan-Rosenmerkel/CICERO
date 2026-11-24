@@ -47,6 +47,9 @@ run_CICERO images.txt --no-clusters
 run_CICERO images.txt --gain-correction               # one curve per module (pooled)
 run_CICERO images.txt --gain-correction both          # pooled and per image
 
+# histograms with automatically chosen binning: pixel charge (e-) and cluster energy (keV) in given ranges
+run_CICERO images.txt --hist pixels:-1:5 --hist clusters:5:7 --hist clusters:13:30
+
 # Fe-55: the group's composite (K-alpha / K-beta fits front and back per CCD, CTI, plots)
 run_CICERO images.txt --gain-correction --composite --module-list modules.csv
 run_CICERO images.txt --composite --image-number 5    # file names without Image_<N>
@@ -123,6 +126,24 @@ packet reports. Everything works with or without `--campaign`.
 | `--gain-periods auto\|off` | `auto` | a curve per gain period where a module's gain steps by > 1 % |
 | `--gain-anchor comb\|fit` | `comb` | low-charge gain from the comb, or each image's fitted gain |
 | `--temperature K` | `$COMM_TEMPERATURE_K`, else 130 | CCD temperature for the energy per electron, epsilon(T) |
+
+### Histograms
+
+| option | default | what it does |
+|---|---|---|
+| `--hist pixels:LO:HI` | | pixel charge of each CCD's active area, LO..HI electrons (repeat for several ranges) |
+| `--hist clusters:LO:HI` | | cluster energy, LO..HI keV (the g(n)-corrected energies with `--gain-correction`) |
+
+The binning is chosen per image, CCD and range, and written in each output:
+- **comb** (pixel charge on a CCD whose electron peaks are resolved): an odd number of bins per electron (1, 3, 5, 9,
+  15 or 45), so a bin is centred on every whole electron; the range is widened to the half-integers around LO and HI.
+  The number is chosen by Knuth's rule (the most probable piecewise-constant density).
+- **knuth** (everything else): equal-width bins over LO..HI, their number chosen by Knuth's rule (up to 1000).
+
+Output in `hist/`: `<image>_EXT<n>_<pixels|clusters>_<LO>-<HI>.csv` (a minus sign written as `m`; low edge, high edge, count; the binning in the
+header lines), a PNG of each, and `index.html` (image / CCD / range selectors, log or linear, drag to zoom). Pixel
+charge uses the linear gain (no g(n)); for large charges use cluster energies. Histograms are per image; images
+already in a campaign get them with `--reprocess`. Not with `--packet`.
 
 ### Fe-55 composite and module names
 
@@ -202,6 +223,7 @@ compare with earlier behaviour.
 | `images/`, `packet/`, `dc_series/`, `defects/`, `sr/` | each tool's overview (`index.html`) and module pages |
 | `root/` | cluster files, one per CCD (`panaSKImg_clustersRec_<image>_ext<n>.root`); `root_files.txt` lists them |
 | `root_gaincorr*/`, `gain_vs_charge/` | with `--gain-correction` |
+| `hist/` | with `--hist` |
 | `composite*/` | with `--composite` (`Fe_55_Analysis_Plots/<module>/...`, `energy_summary.csv`) |
 | `fit_quality.csv` | gain, noise, dark current per CCD, errors scaled by sqrt(chi2/ndf) |
 | `native_summary.json` | everything per image and CCD |

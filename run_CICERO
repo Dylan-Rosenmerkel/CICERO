@@ -429,6 +429,9 @@ def build_parser(full=False):
     g.add_argument("--temperature", type=float, default=None, metavar="K",
                    help="CCD temperature for the energy per electron epsilon(T) (default $COMM_TEMPERATURE_K or 130 K)")
     g = ap.add_argument_group("MakeComposite and module names")
+    g.add_argument("--hist", action="append", metavar="pixels:LO:HI|clusters:LO:HI", default=[],
+                   help="histogram per image and CCD with automatically chosen binning: pixel charge LO..HI electrons "
+                        "or cluster energy LO..HI keV (repeat for several ranges) -> hist/ (CSV, PNG, index.html)")
     g.add_argument("--composite", action="store_true",
                    help="run MakeComposite_Fe55_Clusters_Extensions.cc on the cluster files per image type and module")
     g.add_argument("--composite-macro", metavar="PATH", default=os.environ.get("MAKECOMPOSITE_MACRO", DEFAULT_COMPOSITE_MACRO),
@@ -559,6 +562,17 @@ def check_request(args):
     if args.composite:
         if args.no_clusters:
             die("--composite needs the cluster files; it cannot be used with --no-clusters")
+    if args.hist:
+        for h in args.hist:
+            p = h.split(":")
+            try:
+                ok = len(p) == 3 and p[0] in ("pixels", "clusters") and float(p[2]) > float(p[1])
+            except ValueError:
+                ok = False
+            if not ok:
+                die(f"--hist {h}: expected pixels:LO:HI (electrons) or clusters:LO:HI (keV), with HI > LO")
+        if args.packet:
+            die("--packet makes the packet reports only; run --hist on the images separately")
         args.composite_macro = os.path.abspath(os.path.expanduser(args.composite_macro))
         if not os.path.isfile(args.composite_macro):
             die(f"MakeComposite macro {args.composite_macro} not found; give --composite-macro PATH")
@@ -1019,6 +1033,37 @@ def composite(run, configs, gc_dirs):
     return failed
 
 
+# ---- --hist ------------------------------------------------------------------------------------------------------
+def histograms(run, H, final, specs, gc_dirs):
+    """--hist: pixel histograms made by the workers (record 'hist'), cluster histograms from this run's cluster files
+    (the g(n)-corrected ones when --gain-correction made them) -> hist/. Returns summary lines."""
+    items, notes = [], []
+    cspecs = [sp for sp in specs if sp["kind"] == "clusters"]
+    cdir = (gc_dirs.get("pooled") or gc_dirs.get("per-image")) if gc_dirs else run.dirs["root"]
+    for p, rec in sorted(final.items(), key=lambda kv: kv[1]["stem"]):
+        stem = rec["stem"]
+        if rec.get("hist_error"):
+            notes.append(f"  {stem}: pixel histograms failed ({rec['hist_error']})")
+        for e, hs in sorted((rec.get("hist") or {}).items()):
+            items += [dict(h, image=stem, ext=e) for h in hs]
+        if not cspecs:
+            continue
+        for e in sorted(rec["summary"]["ccds"]):
+            f = os.path.join(cdir, f"panaSKImg_clustersRec_{stem}_ext{e[3:]}.root")
+            if not os.path.isfile(f):
+                continue
+            try:
+                items += [dict(h, image=stem, ext=e) for h in H.cluster_part(f, cspecs)]
+            except Exception as ex:                     # report and go on
+                notes.append(f"  {stem} {e}: cluster histograms failed ({type(ex).__name__}: {ex})")
+    if cspecs and not any(it["spec"] == sp["tag"] for it in items for sp in cspecs):
+        notes.append("  no cluster histograms: no cluster files in this run (--no-clusters?)")
+    if not items:
+        return ["histograms (--hist): none made"] + notes
+    run.say(f"histograms: {len(items)} -> hist/")
+    return H.write_all(os.path.join(run.out, "hist"), items, specs) + notes
+
+
 # ---- summary ----------------------------------------------------------------------------------------------------
 CHAIN_TEXT = {"agmx": "A_GMX", "crowded": "A_GMX crowded mode", "unmodelled": "A_GMX unmodelled (hysteresis)",
               "threshold": "threshold clusterer"}
@@ -1303,6 +1348,7 @@ def main(argv=None):
         os.environ["COMM_TEMPERATURE_K"] = str(args.temperature)
     import campaign as CA
     import fit_quality as FQ
+    import histograms as H
     import native_pipeline as NP
     run = Run(args=args, run_name=run_name, images=files, out=out, modules=modules)
     prepare_output(run)
@@ -1372,8 +1418,11 @@ def main(argv=None):
             return ([("root", args.clusterer, run.dirs["root"], None)]
                     + [(f"gaincorr_{m}", args.clusterer, d, curves[(m, stem)]) for m, d in gc_dirs.items()
                        if (m, stem) in curves])
+        hist_specs = [H.parse_spec(h) for h in args.hist] if args.hist else []
+        pix_specs = [sp for sp in hist_specs if sp["kind"] == "pixels"]
         final = process(run, NP, [(p, out, dict(kw, outputs=outputs(p, need[orig.get(p, p)][0]), plots=True),
-                                   need[orig.get(p, p)][0]) for p, _, kw in tasks])
+                                   dict(need[orig.get(p, p)][0], hist=pix_specs) if pix_specs else need[orig.get(p, p)][0])
+                                  for p, _, kw in tasks])
         NP.write_characterisation(out, recs, [c["summary"] for c in final.values()])
         bconf = {}
         for p, c in final.items():
@@ -1389,6 +1438,8 @@ def main(argv=None):
                 run.lines["gc"] += compare_gain_corrections(run, bconf, curves, gc_dirs)
         if args.composite and bconf:
             run.failed += [(n, "composite", "MakeComposite failed") for n in composite(run, bconf, gc_dirs)]
+        if hist_specs and final:
+            run.lines["comm"] += histograms(run, H, final, hist_specs, gc_dirs) + [""]
         if l1_fits:                                   # images made from level-1 data: noise vs skips, fits side by side
             import gain_dc_split as G
             import raw_data as RD

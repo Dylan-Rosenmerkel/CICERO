@@ -375,5 +375,68 @@ class ReviewHelper(unittest.TestCase):
             self.assertIsNone(R.helper_url(root))
 
 
+
+class Histograms(unittest.TestCase):
+    """commissioning/histograms.py (--hist): range parsing, comb-aligned and Knuth binning."""
+
+    @classmethod
+    def setUpClass(cls):
+        p = os.path.join(SW, "commissioning")
+        if p not in sys.path:
+            sys.path.insert(0, p)
+        import histograms
+        cls.H = histograms
+
+    def test_parse(self):
+        sp = self.H.parse_spec("pixels:-1:5")
+        self.assertEqual((sp["kind"], sp["lo"], sp["hi"], sp["unit"]), ("pixels", -1.0, 5.0, "e-"))
+        self.assertEqual(self.H.parse_spec("clusters:5:7")["unit"], "keV")
+        for bad in ("pixels:5:1", "photons:0:1", "pixels:0"):
+            with self.assertRaises(ValueError):
+                self.H.parse_spec(bad)
+
+    def test_comb_bins_centre_the_electron_peaks(self):
+        import numpy as np
+        rng = np.random.default_rng(1)
+        x = rng.poisson(0.4, 400000) + rng.normal(0, 0.15, 400000)        # resolved peaks, noise 0.15 e-
+        h = self.H.histogram(x, self.H.parse_spec("pixels:-1:4"), resolved=True)
+        self.assertEqual(h["method"], "comb")
+        self.assertEqual(h["range"], [-1.5, 4.5])                           # widened to the half-integers
+        k = h["bins_per_unit"]
+        self.assertGreater(k, 1)                                            # resolves the peak shapes
+        self.assertEqual(k % 2, 1)
+        edges = np.array(h["edges"])
+        self.assertTrue(np.allclose((edges + 0.5) * k, np.round((edges + 0.5) * k)))
+        centres = (edges[:-1] + edges[1:]) / 2
+        for n in range(-1, 5):                                              # a bin centred on every whole electron
+            self.assertTrue(np.any(np.isclose(centres, n)), n)
+        self.assertEqual(h["n"], int(np.sum((x >= -1.5) & (x <= 4.5))))
+
+    def test_knuth_picks_a_sensible_number_of_bins(self):
+        import numpy as np
+        rng = np.random.default_rng(2)
+        flat = self.H.histogram(rng.uniform(0, 10, 20000), self.H.parse_spec("clusters:0:10"))
+        peak = self.H.histogram(rng.normal(5.9, 0.06, 20000), self.H.parse_spec("clusters:5:7"))
+        self.assertEqual(flat["method"], "knuth")
+        self.assertLessEqual(flat["bins"], 10)                               # a flat density needs few bins
+        self.assertLessEqual(peak["width"], 0.03)                            # a narrow line needs bins well below sigma
+        self.assertGreaterEqual(peak["width"], 0.002)
+
+    def test_outputs(self):
+        import numpy as np
+        rng = np.random.default_rng(3)
+        sp = self.H.parse_spec("clusters:5:7")
+        it = dict(self.H.histogram(rng.normal(5.9, 0.1, 5000), sp), spec=sp["tag"], image="img", ext="EXT1")
+        with tempfile.TemporaryDirectory() as d:
+            lines = self.H.write_all(d, [it], [sp])
+            self.assertTrue(lines[0].startswith("histograms (--hist): 1"))
+            for ext in (".csv", ".png"):
+                self.assertTrue(os.path.isfile(os.path.join(d, "img_EXT1_clusters_5-7" + ext)))
+            rows = open(os.path.join(d, "img_EXT1_clusters_5-7.csv")).read().splitlines()
+            self.assertTrue(rows[1].startswith("# binning: knuth"))
+            self.assertEqual(sum(int(r.split(",")[2]) for r in rows[3:]), it["n"])
+            self.assertIn("img_EXT1_clusters_5-7", open(os.path.join(d, "index.html")).read())
+
+
 if __name__ == "__main__":
     unittest.main()

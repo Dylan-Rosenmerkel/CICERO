@@ -681,6 +681,9 @@ def campaign_index(camp, tool_views, path, crit):
         c["links"] = []                              # per tool in the panel: the overview and the full reports
         c["stamp"] = " | ".join(f"{k}: {t.get('stamp')}" for k, t in sorted(c["tools"].items()))
         rows.append(c)
+    if os.path.isfile(os.path.join(os.path.dirname(path), "hist", "index.html")):
+        tools.append(dict(label="Histograms", href="hist/index.html", n=None,
+                          note="--hist: pixel charge and cluster energy, binning chosen per histogram"))
     runs = camp.data.get("runs", [])
     defs = [("verdict", "Worst over the tools that have data for the CCD (fail > warn > pass). The letters in a cell are "
                         "the tools (IM images, PK packets, DC dark current, DF defect maps, SR serial register) in "
